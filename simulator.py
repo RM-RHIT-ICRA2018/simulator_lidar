@@ -7,6 +7,7 @@ Ransalu Senanayake
 import sys
 import numpy as np
 import matplotlib.pylab as pl
+import pdb
 #from moviepy.editor import VideoClip #moviepy v. 0.2.2.11
 
 class Obstacle():
@@ -41,6 +42,15 @@ class Obstacle():
         dy_sin = self.dy*np.sin(self.angle)
         dy_cos = self.dy*np.cos(self.angle)
 
+        # BR_x = centroid[0] + 0.5*(dx_cos + dy_sin) #BR=Bottom-right
+        # BR_y = centroid[1] + 0.5*(dx_sin - dy_cos)
+        # BL_x = centroid[0] - 0.5*(dx_cos - dy_sin)
+        # BL_y = centroid[1] - 0.5*(dx_sin + dy_cos)
+        # TL_x = centroid[0] - 0.5*(dx_cos + dy_sin)
+        # TL_y = centroid[1] - 0.5*(dx_sin - dy_cos)
+        # TR_x = centroid[0] + 0.5*(dx_cos - dy_sin)
+        # TR_y = centroid[1] + 0.5*(dx_sin + dy_cos)
+
         BR_x = centroid[0] + 0.5*(dx_cos + dy_sin) #BR=Bottom-right
         BR_y = centroid[1] + 0.5*(dx_sin - dy_cos)
         BL_x = centroid[0] - 0.5*(dx_cos - dy_sin)
@@ -48,8 +58,7 @@ class Obstacle():
         TL_x = centroid[0] - 0.5*(dx_cos + dy_sin)
         TL_y = centroid[1] - 0.5*(dx_sin - dy_cos)
         TR_x = centroid[0] + 0.5*(dx_cos - dy_sin)
-        TR_y = centroid[1] + 0.5*(dx_sin + dy_cos)
-
+        TR_y = centroid[1] + 0.5*(dx_sin + dy_cos)        
         seg_bottom = (BL_x, BL_y, BR_x, BR_y)
         seg_left = (BL_x, BL_y, TL_x, TL_y)
 
@@ -89,7 +98,7 @@ class Obstacle():
         return self.__get_points(centroid=[self.centroid[0] + disp_x, self.centroid[1] + disp_y])
 
 
-def connect_segments(segments, resolution = 0.01):
+def connect_segments(segments, resolution = 1):
     """
     :param segments: start and end points of all segments as ((x1,y1,x1',y1'), (x2,y2,x2',y2'), (x3,y3,x3',y3'), (...))
            step_size : resolution for plotting
@@ -152,8 +161,24 @@ def get_intersection(a1, a2, b1, b2) :
 
     return intersct
 
+def check_intersection(line1,line2,p,p1):
+    det=line1[0]*line2[1]-line2[0]*line1[1]
+    if det==0:
+        return None
+    else:
+        x=(line2[1]*line1[2]-line1[1]*line2[2])/det
+        y=(line1[0]*line2[2]-line2[0]*line1[2])/det
+        if (x>=min(p1[0][0],p1[1][0])) and (x<=max(p1[0][0],p1[1][0])):
+            if (y>=min(p1[0][1],p1[1][1])) and (y<=max(p1[0][1],p1[1][1])):
+                if (x>=min(p[0][0],p[1][0])) and (x<=max(p[0][0],p[1][0])):
+                    if (y>=min(p[1][1],p[0][1])) and (y<=max(p[0][1],p[1][1])):
+                        return [x,y]
+    return None
 
-def get_laser_ref(segments, realm_in_radians=np.pi, n_reflections=180, max_dist=100, xy_robot=np.array([0.0, 0.0])):
+def calculate_line(x1,x2):
+    return [x2[1]-x1[1],x1[0]-x2[0],(x2[1]-x1[1])*x1[0]+(x1[0]-x2[0])*x1[1]]
+
+def get_laser_ref(segments, realm_in_radians=np.pi, n_reflections=10, max_dist=100, xy_robot=np.array([0.0, 0.0])):
     """
     :param segments: start and end points of all segments as ((x1,y1,x1',y1'), (x2,y2,x2',y2'), (x3,y3,x3',y3'), (...))
            realm_in_radians: sight of the robot - typically pi or 4/3*pi
@@ -165,22 +190,37 @@ def get_laser_ref(segments, realm_in_radians=np.pi, n_reflections=180, max_dist=
 
     angles = np.linspace(0, realm_in_radians, n_reflections)
     dist_theta = max_dist*np.ones(n_reflections) # set all laser reflections to 100
-
+    print(np.shape(segments))
     for seg_i in segments:
+        #print(seg_i)
+        #pdb.set_trace()
+        
         xy_i_start, xy_i_end = np.array(seg_i[:2]), np.array(seg_i[2:]) #starting and ending points of each segment
+        #print(xy_i_start, xy_i_end)
         for j, theta in enumerate(angles):
-            x_pos = max_dist*np.cos(theta)
-            y_pos = max_dist*np.sin(theta)
+            x_pos = max_dist*np.cos(theta)+xy_robot[0]
+            y_pos = max_dist*np.sin(theta)+xy_robot[1]
             xy_ij_max = np.array([x_pos, y_pos]) # max possible distance
-
-            intersection = get_intersection(xy_i_start, xy_i_end, xy_robot, xy_ij_max)
+            
+            #pdb.set_trace()
+            
+            #intersection = check_intersection(calculate_line(xy_i_start, xy_i_end), 
+            #                calculate_line(xy_robot, xy_ij_max),[xy_i_start, xy_i_end],[xy_robot, xy_ij_max])
+            
+            intersection=get_intersection(xy_i_start, xy_i_end, xy_robot, xy_ij_max)
             #TODO: when the robot is moving
             if intersection is not None: #if the line segments intersect
-                r = np.sqrt( intersection[0]**2 + intersection[1]**2 )
-
+                r = np.sqrt( (intersection[0]-xy_robot[0])**2 + (intersection[1]-xy_robot[1])**2 )
+                #print(r)
+                #pdb.set_trace()
+                #if r<10: pdb.set_trace()
                 if r < dist_theta[j]:
                     dist_theta[j] = r
 
+    #pdb.set_trace()
+    # for i,da in enumerate(dist_theta):
+    #     if da==100:
+    #         #pdb.set_trace()
     return dist_theta
 
 def update_text_file(text_file, data, file_format='carmen'):
@@ -204,16 +244,38 @@ def update_text_file(text_file, data, file_format='carmen'):
 def main():
     #set up the robot
     n_reflections = 180
-    realm_in_radians = np.pi
-    max_laser_distance = 50
-    robot_pos = np.array([0.0, 0.0])
+    realm_in_radians = np.pi*2
+    max_laser_distance = 300
+    robot_pos = np.array([100, 100])
 
     #set up the environment
-    obs1 = Obstacle(centroid=[0, 40], dx=40, dy=0, angle=np.pi/10, vel=[0, 0], acc=[0, 0]) #a wall
-    obs2 = Obstacle(centroid=[-10, 10], dx=4, dy=2, angle=0, vel=[2, 0], acc=[0, 0]) #vehicle 1 - move right
-    obs3 = Obstacle(centroid=[30, 20], dx=2, dy=5, angle=0, vel=[0, -1], acc=[0, 0]) #vehicle 2 - move down
-    obs4 = Obstacle(centroid=[0, 35], dx=4, dy=2, angle=-np.pi/6, vel=[0, 0], acc=[0, 0]) #vehicle 3 - parked
-    all_obstacles = (obs1, obs2, obs3, obs4)
+
+    # obs1 = Obstacle(centroid=[-400+150, 250], dx=40, dy=0, angle=0, vel=[0, 0], acc=[0, 0]) #a wall
+    # obs2 = Obstacle(centroid=[-10, 10], dx=4, dy=2, angle=0, vel=[0, 0], acc=[0, 0]) #vehicle 1 - move right
+    # obs3 = Obstacle(centroid=[30, 20], dx=2, dy=5, angle=0, vel=[0, 0], acc=[0, 0]) #vehicle 2 - move down
+    # obs4 = Obstacle(centroid=[0, 35], dx=4, dy=2, angle=0, vel=[0, 0], acc=[0, 0]) #vehicle 3 - parked
+    # obs5 = 
+
+    obs=[[[0,0],[0,0]] for i in range(20)]
+    obs[0]=[[2200,0],[2500,800]]
+    obs[1]=[[3700,1200],[4000,2000]]
+    obs[2]=[[1500,1800],[2700,2100]]
+    obs[3]=[[0,3100],[2000,3400]]
+    for i in range(4):
+        t=obs[i]
+        obs[i+4]=[[5000-t[1][0],8000-t[1][1]],
+                                    [5000-t[0][0],8000-t[0][1]]]
+    obs[8]=[[-300,-300],[5300,0]]
+    obs[9]=[[-300,-300],[0,8300]]
+    obs[10]=[[5000,-300],[5300,8300]]
+    obs[11]=[[-300,8000],[5300,8300]]
+    
+    obs=np.array(obs)/10
+    all_obstacles=[]
+    for i in range(12):
+        all_obstacles.append(Obstacle(centroid=[(obs[i][1][0]+obs[i][0][0])/2, 
+                (obs[i][1][1]+obs[i][0][1])/2], dx=obs[i][1][0]-obs[i][0][0], 
+                dy=obs[i][1][1]-obs[i][0][1], angle=0, vel=[0, 0], acc=[0, 0]))
 
     output_file_name = 'simulator_out.txt'
     text_file = open(output_file_name, 'w')
@@ -224,17 +286,21 @@ def main():
         all_obstacle_segments = []
         for obs_i in all_obstacles:
             all_obstacle_segments += obs_i.update()
+        #print(all_obstacle_segments)
 
         #update laser reflections
-        dist_theta = get_laser_ref(all_obstacle_segments, realm_in_radians, n_reflections, max_laser_distance, robot_pos)
+        dist_theta = get_laser_ref(all_obstacle_segments, realm_in_radians, 
+            n_reflections, max_laser_distance, robot_pos)
 
         #(x,y) of laser reflections
         angles = np.linspace(0, realm_in_radians, n_reflections)
-        laser_data_xy = np.vstack([dist_theta*np.cos(angles), dist_theta*np.sin(angles)]).T
+        laser_data_xy = np.vstack([dist_theta*np.cos(angles)+robot_pos[0], dist_theta*np.sin(angles)+robot_pos[1]]).T
 
         #get the environment for plotting purposes
         connected_components = connect_segments(all_obstacle_segments)
 
+        #print(connected_components)
+        #pdb.set_trace()
         #plot
         pl.clf()
         pl.scatter(connected_components[:,0], connected_components[:,1], marker='.', c='y', edgecolor='', alpha=0.2) #obstacles
@@ -296,7 +362,8 @@ def make_a_video():
             all_obstacle_segments += obs_i.update()
 
         #update laser reflections
-        dist_theta = get_laser_ref(all_obstacle_segments, realm_in_radians, n_reflections, max_laser_distance, robot_pos)
+        dist_theta = get_laser_ref(all_obstacle_segments, realm_in_radians, 
+                            n_reflections, max_laser_distance, robot_pos)
 
         #(x,y) of laser reflections
         angles = np.linspace(0, realm_in_radians, n_reflections)
