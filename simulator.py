@@ -98,7 +98,7 @@ class Obstacle():
         return self.__get_points(centroid=[self.centroid[0] + disp_x, self.centroid[1] + disp_y])
 
 
-def connect_segments(segments, resolution = 1):
+def connect_segments(segments, resolution = 10):
     """
     :param segments: start and end points of all segments as ((x1,y1,x1',y1'), (x2,y2,x2',y2'), (x3,y3,x3',y3'), (...))
            step_size : resolution for plotting
@@ -243,7 +243,7 @@ def update_text_file(text_file, data, file_format='carmen'):
 
 def main():
     #set up the robot
-    n_reflections = 180
+    n_reflections = 100
     realm_in_radians = np.pi*2
     max_laser_distance = 300
     robot_pos = np.array([100, 100])
@@ -279,7 +279,7 @@ def main():
 
     output_file_name = 'simulator_out.txt'
     text_file = open(output_file_name, 'w')
-    for t in range(25):
+    for t in range(1):
         print('time = {}...'.format(t))
 
         #update obstacles
