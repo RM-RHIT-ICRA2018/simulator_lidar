@@ -387,10 +387,12 @@ def error_kernel(error,weight):
 def sample_kernel(weight,old_particle_pos,particle_pos):
     tx = int(cuda.threadIdx.x) # this is the unique thread ID within a 1D block
     ty = int(cuda.blockIdx.x)  # Similarly, this is t
-    t=cuda.random.xoroshiro128p_uniform_float32()
-    for i in range(np.shape(weight)[0]):
+    #t=random.random()
+    t=0.5
+    for i in range(len(weight)):
         if t-weight[i]<0:
-            particle_pos[ty]=old_particle_pos[i]
+            particle_pos[ty][0]=old_particle_pos[i][0]
+            particle_pos[ty][1]=old_particle_pos[i][1]
             break
         else:
             t-=weight[i]
