@@ -7,9 +7,10 @@ import sys
 import numpy as np
 from rplidar.rplidar import RPLidar
 import pdb
-import time
-from numpy.random import choice
+import timeit
+#from numpy.random import random
 import random
+
 from numba import cuda,guvectorize
 import math
 
@@ -312,6 +313,9 @@ robot_pos=np.array([100, 100])
 particle_num=10000
 dis_pos=[0,0]
 particle_order=[i for i in range(particle_num)]
+
+particle_order=cuda.to_device(particle_order)
+
 particle_weight=[0 for i in range(particle_num)]
 particle_pos=[]
 for i in range(particle_num):
@@ -353,7 +357,7 @@ def add_kernel(all_obstacle_segments, particle_pos,data, out):
     if not(angle==-1):
         pos=particle_pos[ty]
         #out[ty][tx]=(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
-        out[ty*200+tx]=get_laser_ref(all_obstacle_segments,angle,pos)
+        out[ty*200+tx]=(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
 
 # @guvectorize(['(float32[:], float32[:])'], # have to include the output array in the type signature
 #              '(i)->()',                 # map a 1D array to a scalar output
@@ -369,10 +373,34 @@ def add_kernel(all_obstacle_segments, particle_pos,data, out):
 
 # for scan in lidar.iter_scans():
 #     data=np.array(scan)
+@cuda.jit
+def error_kernel(error,weight):
+    tx = int(cuda.threadIdx.x) # this is the unique thread ID within a 1D block
+    ty = int(cuda.blockIdx.x)  # Similarly, this is the unique block ID within the 1D grid
 
+    block_size = cuda.blockDim.x  # number of threads per block
+    grid_size = cuda.gridDim.x    # number of blocks in the grid
+    for i in range(200):
+        weight[ty]=weight[ty]+error[200*ty+i]
+
+@cuda.jit
+def sample_kernel(weight,old_particle_pos,particle_pos):
+    tx = int(cuda.threadIdx.x) # this is the unique thread ID within a 1D block
+    ty = int(cuda.blockIdx.x)  # Similarly, this is t
+    t=cuda.random.xoroshiro128p_uniform_float32()
+    for i in range(np.shape(weight)[0]):
+        if t-weight[i]<0:
+            particle_pos[ty]=old_particle_pos[i]
+            break
+        else:
+            t-=weight[i]
+    
 #error=np.array([0 for i in range(particle_num*200)],np.float32)
 error=cuda.device_array(shape=(particle_num*200),dtype=np.float32)
-for _  in range(10000):
+weight=cuda.device_array(shape=(particle_num),dtype=np.float32)
+particle_pos_2=cuda.device_array_like(particle_pos)
+
+for q  in range(10000):
     sum_error=0
     for num in range(particle_num):
         particle_pos[num][0]+=dis_pos[0]
@@ -381,32 +409,37 @@ for _  in range(10000):
     cuda.synchronize()
     add_kernel[particle_num,np.shape(data)[0]](all_obstacle_segments, particle_pos,data,error)
     cuda.synchronize()
+    error_kernel[particle_num,1](error,weight)
+    cuda.synchronize()
+    weight=weight/np.sum(weight)
+    sample_kernel[particle_num,1](weight,particle_pos,particle_pos_2)
+    cuda.synchronize()
+    particle_pos=particle_pos_2
     break
-    error_kernal[1,particle_num](error,weight)
-        # error=calculate_error(data)
-        # 0
-        # for i in range(np.shape(data)[0]):
-        #     angle=data[i][1]/360*np.pi*2
-        #     error+=(get_laser_ref(all_obstacle_segments,angle,particle_pos[num])-data[i][2])**2
-        # error=error/np.shape(data)[0]
-        # particle_weight[num]=error
-        # sum_error+=error
-    particle_weight=particle_weight/sum_error
+    #     error=calculate_error(data)
+    #     0
+    #     for i in range(np.shape(data)[0]):
+    #         angle=data[i][1]/360*np.pi*2
+    #         error+=(get_laser_ref(all_obstacle_segments,angle,particle_pos[num])-data[i][2])**2
+    #     error=error/np.shape(data)[0]
+    #     particle_weight[num]=error
+    #     sum_error+=error
+    # particle_weight=particle_weight/sum_error
 
-    new_particle=[]
-    for num in range(particle_num):
-        t=choice(particle_order, p=particle_weight)
-        new_particle.append(particle_pos[t])
-    particle_pos=new_particle
+    # new_particle=[]
+    # for num in range(particle_num):
+    #     t=choice(particle_order, p=particle_weight)
+    #     new_particle.append(particle_pos[t])
+    # particle_pos=new_particle
 
-    x=0
-    y=0
-    for i in range(particle_num):
-        x=x+particle_pos[i][0]
-        y=y+particle_pos[i][1]
-    x=x/particle_num
-    y=y/particle_num
-    print(x,y)
-    #print(np.shape(data))
-    #time.sleep(1)
+    # x=0
+    # y=0
+    # for i in range(particle_num):
+    #     x=x+particle_pos[i][0]
+    #     y=y+particle_pos[i][1]
+    # x=x/particle_num
+    # y=y/particle_num
+    # print(x,y)
+    # #print(np.shape(data))
+    # #time.sleep(1)
         
