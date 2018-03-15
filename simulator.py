@@ -243,10 +243,10 @@ def update_text_file(text_file, data, file_format='carmen'):
 
 def main():
     #set up the robot
-    n_reflections = 100
+    n_reflections = 200
     realm_in_radians = np.pi*2
-    max_laser_distance = 300
-    robot_pos = np.array([100, 100])
+    max_laser_distance = 10000
+    robot_pos = np.array([3912, 1937])
 
     #set up the environment
 
@@ -270,7 +270,7 @@ def main():
     obs[10]=[[5000,-300],[5300,8300]]
     obs[11]=[[-300,8000],[5300,8300]]
     
-    obs=np.array(obs)/10
+    obs=np.array(obs)
     all_obstacles=[]
     for i in range(12):
         all_obstacles.append(Obstacle(centroid=[(obs[i][1][0]+obs[i][0][0])/2, 

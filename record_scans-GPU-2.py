@@ -309,9 +309,9 @@ for i in range(12):
             dy=obs[i][1][1]-obs[i][0][1], angle=0, vel=[0, 0], acc=[0, 0]))
 
 #lidar = RPLidar(PORT_NAME)
-robot_pos=np.array([2000, 1200])
+robot_pos=np.array([100, 100])
 particle_num=1000
-dis_pos=[1,1]
+dis_pos=[0,0]
 particle_order=[i for i in range(particle_num)]
 
 particle_order=cuda.to_device(particle_order)
@@ -320,7 +320,10 @@ particle_weight=[0 for i in range(particle_num)]
 particle_pos=[]
 for i in range(particle_num):
     particle_pos.append([random.uniform(0,5000),random.uniform(0,8000)])
+    #particle_pos.append([2100,1200])
     #print(particle_pos)
+#particle_pos[0]=[110,110]
+#particle_pos[1]=[2000,1200]
 particle_pos=np.array(particle_pos,np.float32)
 
 all_obstacle_segments = []
@@ -357,8 +360,9 @@ def add_kernel(all_obstacle_segments, particle_pos,data, out):
     if not(angle==-1):
         pos=particle_pos[ty]
         #out[ty][tx]=(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
-        out[ty*200+tx]=(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
-
+        #out[ty*200+tx]=10000/(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
+        error_t=get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis
+        out[ty*200+tx]=math.exp(-(error_t *error_t)/10000000)
 # @guvectorize(['(float32[:], float32[:])'], # have to include the output array in the type signature
 #              '(i)->()',                 # map a 1D array to a scalar output
 #              target='cuda')
@@ -380,8 +384,10 @@ def error_kernel(error,weight):
 
     block_size = cuda.blockDim.x  # number of threads per block
     grid_size = cuda.gridDim.x    # number of blocks in the grid
+    t=1
     for i in range(200):
-        weight[ty]=weight[ty]+error[200*ty+i]
+        t=t*error[200*ty+i]
+    weight[ty]=t
 
 @cuda.jit
 def sample_kernel(rng_states,weight,old_particle_pos,particle_pos):
@@ -404,7 +410,14 @@ particle_pos_2=cuda.device_array_like(particle_pos)
 rng_states = create_xoroshiro128p_states(particle_num, seed=1)
 
 for q  in range(10000):
-    sum_error=0
+    
+    robot_pos[0]+=dis_pos[0]
+    robot_pos[1]+=dis_pos[1]
+    
+    for i in range(200):
+        t=random.uniform(0,np.pi*2)
+        data[i]=[0,t,get_laser_ref2(all_obstacle_segments,t,robot_pos)]
+    
     for num in range(particle_num):
         particle_pos[num][0]+=dis_pos[0]
         particle_pos[num][1]+=dis_pos[1]
@@ -415,11 +428,22 @@ for q  in range(10000):
     error_kernel[particle_num,1](error,weight)
     cuda.synchronize()
     weight=weight/np.sum(weight)
+
+    # p=weight[0]
+    # pp=0
+    # for j in range(particle_num):
+    #     if weight[j]>p:
+    #         p=weight[j]
+    #         pp=j
+    # print(pp)
+    #pdb.set_trace()
     sample_kernel[particle_num,1](rng_states,weight,particle_pos,particle_pos_2)
     cuda.synchronize()
     particle_pos=particle_pos_2.copy_to_host()
-    print(np.mean(particle_pos[:,0]),np.mean(particle_pos[:,1]))
-    if q==500: break
+    print(particle_pos)
+    print(np.mean(particle_pos[:,0])-robot_pos[0],np.mean(particle_pos[:,1])-robot_pos[1])
+
+    if q==5000: break
 
     #     error=calculate_error(data)
     #     0
