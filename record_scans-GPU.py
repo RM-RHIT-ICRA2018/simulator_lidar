@@ -309,7 +309,7 @@ for i in range(12):
 
 #lidar = RPLidar(PORT_NAME)
 robot_pos=np.array([100, 100])
-particle_num=100
+particle_num=10000
 dis_pos=[0,0]
 particle_order=[i for i in range(particle_num)]
 particle_weight=[0 for i in range(particle_num)]
@@ -327,13 +327,13 @@ all_obstacle_segments=np.array(all_obstacle_segments,np.float32)
 
 
 data=[]
-for i in range(100):
+for i in range(200):
     t=random.uniform(0,np.pi*2)
     data.append([0,t,get_laser_ref2(all_obstacle_segments,t,robot_pos)])
 data=np.array(data,np.float32)
 
 #particle_pos=cuda.to_device(particle_pos)
-#all_obstacles_segments=cuda.to_device(all_obstacle_segments)
+all_obstacles_segments=cuda.to_device(all_obstacle_segments)
 
 
 @cuda.jit
@@ -353,7 +353,7 @@ def add_kernel(all_obstacle_segments, particle_pos,data, out):
     if not(angle==-1):
         pos=particle_pos[ty]
         #out[ty][tx]=(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
-        out[ty*100+tx]=get_laser_ref(all_obstacle_segments,angle,pos)
+        out[ty*200+tx]=get_laser_ref(all_obstacle_segments,angle,pos)
 
 # @guvectorize(['(float32[:], float32[:])'], # have to include the output array in the type signature
 #              '(i)->()',                 # map a 1D array to a scalar output
@@ -376,10 +376,12 @@ for _  in range(10000):
     for num in range(particle_num):
         particle_pos[num][0]+=dis_pos[0]
         particle_pos[num][1]+=dis_pos[1]
-    error=np.array([0 for i in range(particle_num*100)],np.float32)
+    error=np.array([0 for i in range(particle_num*200)],np.float32)
+    cuda.synchronize()
     add_kernel[particle_num,np.shape(data)[0]](all_obstacle_segments, particle_pos,data,error)
-    print(error)
-    pdb.set_trace()
+    cuda.synchronize()
+    print(np.shape(error))
+    break
         # error=calculate_error(data)
         # 0
         # for i in range(np.shape(data)[0]):

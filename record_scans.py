@@ -229,7 +229,7 @@ for i in range(12):
 
 #lidar = RPLidar(PORT_NAME)
 robot_pos=np.array([100, 100])
-particle_num=100
+particle_num=500
 dis_pos=[0,0]
 particle_order=[i for i in range(particle_num)]
 particle_weight=[0 for i in range(particle_num)]
@@ -244,7 +244,7 @@ all_obstacle_segments = []
 for obs_i in all_obstacles:
     all_obstacle_segments += obs_i.update()
 data=[]
-for i in range(100):
+for i in range(200):
     t=random.uniform(0,np.pi*2)
     data.append([0,t,get_laser_ref(all_obstacle_segments,t,robot_pos)])
 
@@ -261,6 +261,7 @@ for _  in range(10000):
         error=error/np.shape(data)[0]
         particle_weight[num]=error
         sum_error+=error
+    break
     particle_weight=particle_weight/sum_error
 
     new_particle=[]
