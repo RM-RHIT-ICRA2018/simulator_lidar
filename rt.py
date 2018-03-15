@@ -1,35 +1,41 @@
 
+from numba import cuda
 import numpy as np
-from numba import cuda,vectorize
-import math
-
-@cuda.jit(device=True)
-def sum(a,b):
-    return(a+b)
 
 
-
-@cuda.jit(device=True)
-def polar_to_cartesian(rho, theta):
-    x = rho * math.cos(theta)
-    y = rho * math.sin(theta)
-    return sum(x,y), y  # This is Python, so let's return a tuple
-
-@vectorize(['float32(float32, float32, float32, float32)'], target='cuda')
-def polar_distance(rho1, theta1, rho2, theta2):
-    x1, y1 = polar_to_cartesian(rho1, theta1)
-    x2, y2 = polar_to_cartesian(rho2, theta2)
+@cuda.jit(debug=True)
+def cufftShift_2D_kernel(data, N):
+    #adopting cuda shift code from:
+    #https://github.com/marwan-abdellah/cufftShift
+    #GNU Lesser public license
     
-    return ((x1 - x2)**2 + (y1 - y2)**2)**0.5
+    #// 2D Slice & 1D Line
+    sLine = N
+    sSlice = N * N
+    #// Transformations Equations
+    sEq1 = int((sSlice + sLine) / 2)
+    sEq2 = int((sSlice - sLine) / 2)
+    x, y = cuda.grid(2)
+    #// Thread Index Converted into 1D Index
+    index = (y * N) + x
+    #T regTemp;
+    #data[index]=0
+    if (x < N / 2):
+        if (y < N / 2):
+            #// First Quad
+            temp =data[index]
+            data[index] = data[index + sEq1]
+            #// Third Quad
+            data[index + sEq1] = temp
+    else:
+        if (y < N / 2):
+            #// Second Quad
+            temp=data[index]
+            data[index] = data[index + sEq2];
+            data[index + sEq2] = temp
 
+    
+n=4
+array=np.ones([n,n])#,dtype=np.complex128)
 
-n = 1000000
-rho1 = np.random.uniform(0.5, 1.5, size=n).astype(np.float32)
-theta1 = np.random.uniform(-np.pi, np.pi, size=n).astype(np.float32)
-rho2 = np.random.uniform(0.5, 1.5, size=n).astype(np.float32)
-theta2 = np.random.uniform(-np.pi, np.pi, size=n).astype(np.float32)
-
-
-
-print(polar_distance(rho1, theta1, rho2, theta2))
-
+cufftShift_2D_kernel(array.ravel(),n)

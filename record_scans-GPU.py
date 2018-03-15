@@ -216,14 +216,15 @@ def get_laser_ref(segments, angle, xy_robot):
     #xy_ij_max = [x_pos, y_pos] # max possible distance
     for i in range(len(segments)):
         seg_i=segments[i]
-        xy_i_start, xy_i_end = seg_i[:2], seg_i[2:] #starting and ending points of each segment
+        xy_i_start= seg_i[:2] #starting and ending points of each segment
+        xy_i_end=  seg_i[2:]
         intersection_0,intersection_1=get_intersection(xy_i_start, xy_i_end, xy_robot, x_pos,y_pos)
         #TODO: when the robot is moving
         if intersection_0 is not None: #if the line segments intersect
             r = math.sqrt( (intersection_0-xy_robot[0])**2 + (intersection_1-xy_robot[1])**2 )
             if r < dist_theta:
                 dist_theta = r
-    return dist_theta
+    return np.float32(dist_theta)
 
 def get_intersection2(a1, a2, b1, b2) :
     """
@@ -316,12 +317,12 @@ particle_pos=[]
 for i in range(particle_num):
     particle_pos.append([random.uniform(0,5000),random.uniform(0,8000)])
     #print(particle_pos)
-particle_pos=np.array(particle_pos)
+particle_pos=np.array(particle_pos,np.float32)
 
 all_obstacle_segments = []
 for obs_i in all_obstacles:
     all_obstacle_segments += obs_i.update()
-all_obstacle_segments=np.array(all_obstacle_segments)
+all_obstacle_segments=np.array(all_obstacle_segments,np.float32)
 
 
 
@@ -329,15 +330,17 @@ data=[]
 for i in range(100):
     t=random.uniform(0,np.pi*2)
     data.append([0,t,get_laser_ref2(all_obstacle_segments,t,robot_pos)])
+data=np.array(data,np.float32)
 
-particle_pos=cuda.to_device(particle_pos)
-all_obstacles_segments=cuda.to_device(all_obstacle_segments)
+#particle_pos=cuda.to_device(particle_pos)
+#all_obstacles_segments=cuda.to_device(all_obstacle_segments)
+
 
 @cuda.jit
 def add_kernel(all_obstacle_segments, particle_pos,data, out):
     max_dist=10000
-    tx = cuda.threadIdx.x # this is the unique thread ID within a 1D block
-    ty = cuda.blockIdx.x  # Similarly, this is the unique block ID within the 1D grid
+    tx = int(cuda.threadIdx.x) # this is the unique thread ID within a 1D block
+    ty = int(cuda.blockIdx.x)  # Similarly, this is the unique block ID within the 1D grid
 
     block_size = cuda.blockDim.x  # number of threads per block
     grid_size = cuda.gridDim.x    # number of blocks in the grid
@@ -349,7 +352,8 @@ def add_kernel(all_obstacle_segments, particle_pos,data, out):
     
     if not(angle==-1):
         pos=particle_pos[ty]
-        out[ty][tx]=(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
+        #out[ty][tx]=(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
+        out[ty*100+tx]=get_laser_ref(all_obstacle_segments,angle,pos)
 
 # @guvectorize(['(float32[:], float32[:])'], # have to include the output array in the type signature
 #              '(i)->()',                 # map a 1D array to a scalar output
@@ -372,9 +376,7 @@ for _  in range(10000):
     for num in range(particle_num):
         particle_pos[num][0]+=dis_pos[0]
         particle_pos[num][1]+=dis_pos[1]
-        pdb.set_trace()
-        error=[0 for i in range(particle_num*100)]
-        pdb.set_trace()
+        error=np.array([0 for i in range(particle_num*100)],np.float32)
         add_kernel[particle_num,np.shape(data)[0]](all_obstacle_segments, particle_pos,data,error)
         print(error)
         # error=calculate_error(data)
