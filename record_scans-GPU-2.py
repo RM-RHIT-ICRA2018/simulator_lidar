@@ -13,7 +13,7 @@ import random
 
 from numba import cuda,guvectorize
 import math
-
+from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float32
 
 PORT_NAME = '/dev/ttyUSB0'
 
@@ -309,9 +309,9 @@ for i in range(12):
             dy=obs[i][1][1]-obs[i][0][1], angle=0, vel=[0, 0], acc=[0, 0]))
 
 #lidar = RPLidar(PORT_NAME)
-robot_pos=np.array([100, 100])
-particle_num=10000
-dis_pos=[0,0]
+robot_pos=np.array([2000, 1200])
+particle_num=1000
+dis_pos=[1,1]
 particle_order=[i for i in range(particle_num)]
 
 particle_order=cuda.to_device(particle_order)
@@ -384,11 +384,11 @@ def error_kernel(error,weight):
         weight[ty]=weight[ty]+error[200*ty+i]
 
 @cuda.jit
-def sample_kernel(weight,old_particle_pos,particle_pos):
+def sample_kernel(rng_states,weight,old_particle_pos,particle_pos):
     tx = int(cuda.threadIdx.x) # this is the unique thread ID within a 1D block
     ty = int(cuda.blockIdx.x)  # Similarly, this is t
-    #t=random.random()
-    t=0.5
+    thread_id = cuda.grid(1)
+    t=xoroshiro128p_uniform_float32(rng_states,thread_id)
     for i in range(len(weight)):
         if t-weight[i]<0:
             particle_pos[ty][0]=old_particle_pos[i][0]
@@ -401,6 +401,7 @@ def sample_kernel(weight,old_particle_pos,particle_pos):
 error=cuda.device_array(shape=(particle_num*200),dtype=np.float32)
 weight=cuda.device_array(shape=(particle_num),dtype=np.float32)
 particle_pos_2=cuda.device_array_like(particle_pos)
+rng_states = create_xoroshiro128p_states(particle_num, seed=1)
 
 for q  in range(10000):
     sum_error=0
@@ -414,10 +415,12 @@ for q  in range(10000):
     error_kernel[particle_num,1](error,weight)
     cuda.synchronize()
     weight=weight/np.sum(weight)
-    sample_kernel[particle_num,1](weight,particle_pos,particle_pos_2)
+    sample_kernel[particle_num,1](rng_states,weight,particle_pos,particle_pos_2)
     cuda.synchronize()
-    particle_pos=particle_pos_2
-    break
+    particle_pos=particle_pos_2.copy_to_host()
+    print(np.mean(particle_pos[:,0]),np.mean(particle_pos[:,1]))
+    if q==500: break
+
     #     error=calculate_error(data)
     #     0
     #     for i in range(np.shape(data)[0]):
