@@ -376,9 +376,10 @@ for _  in range(10000):
     for num in range(particle_num):
         particle_pos[num][0]+=dis_pos[0]
         particle_pos[num][1]+=dis_pos[1]
-        error=np.array([0 for i in range(particle_num*100)],np.float32)
-        add_kernel[particle_num,np.shape(data)[0]](all_obstacle_segments, particle_pos,data,error)
-        print(error)
+    error=np.array([0 for i in range(particle_num*100)],np.float32)
+    add_kernel[particle_num,np.shape(data)[0]](all_obstacle_segments, particle_pos,data,error)
+    print(error)
+    pdb.set_trace()
         # error=calculate_error(data)
         # 0
         # for i in range(np.shape(data)[0]):
