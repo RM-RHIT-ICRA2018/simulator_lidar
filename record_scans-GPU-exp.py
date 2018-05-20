@@ -5,6 +5,7 @@ Usage example:
 #$ ./record_scans.py out.npy'''
 import sys
 import numpy as np
+import numpy
 from rplidar.rplidar import RPLidar
 import pdb
 import timeit
@@ -211,9 +212,9 @@ def get_laser_ref(segments, angle, xy_robot):
     """
     max_dist=10000
     dist_theta = max_dist
-    theta=np.float32(angle)
-    x_pos = max_dist*math.cos(theta)+xy_robot[0]
-    y_pos = max_dist*math.sin(theta)+xy_robot[1]
+    theta=np.float32(angle)/360*2*math.pi
+    x_pos = max_dist*math.sin(theta)+xy_robot[0]
+    y_pos = -max_dist*math.cos(theta)+xy_robot[1]
     #xy_ij_max = [x_pos, y_pos] # max possible distance
     for i in range(len(segments)):
         seg_i=segments[i]
@@ -287,31 +288,28 @@ def get_laser_ref2(segments, angle, xy_robot,max_dist=10000):
                 dist_theta = r
     return dist_theta
 
+ 
 obs=[[[0,0],[0,0]] for i in range(20)]
-obs[0]=[[2200,0],[2500,800]]
-obs[1]=[[3700,1200],[4000,2000]]
-obs[2]=[[1500,1800],[2700,2100]]
-obs[3]=[[0,3100],[2000,3400]]
-for i in range(4):
-    t=obs[i]
-    obs[i+4]=[[5000-t[1][0],8000-t[1][1]],
-                                [5000-t[0][0],8000-t[0][1]]]
-obs[8]=[[-300,-300],[5300,0]]
-obs[9]=[[-300,-300],[0,8300]]
-obs[10]=[[5000,-300],[5300,8300]]
-obs[11]=[[-300,8000],[5300,8300]]
+obs[0]=[[-10,-10],[1940,0]]
+obs[1]=[[1930,-10],[1940,3972]]
+obs[2]=[[-10,-10],[0,3972]]
+obs[3]=[[-10,3962],[1940,3972]]
+obs[4]=[[1930-393,3962-1524-736],[1930,3962-1524]]
     
 obs=np.array(obs)
+num_obs=5
 all_obstacles=[]
-for i in range(12):
+for i in range(num_obs):
     all_obstacles.append(Obstacle(centroid=[(obs[i][1][0]+obs[i][0][0])/2, 
             (obs[i][1][1]+obs[i][0][1])/2], dx=obs[i][1][0]-obs[i][0][0], 
             dy=obs[i][1][1]-obs[i][0][1], angle=0, vel=[0, 0], acc=[0, 0]))
 
 #lidar = RPLidar(PORT_NAME)
-robot_pos=np.array([3600, 3600])
-particle_num=300
-dis_pos=[100,100]
+robot_pos=np.array([100, 200])
+particle_num=1000
+dis_pos=[0,0]
+max_x=1930
+max_y=3962
 particle_order=[i for i in range(particle_num)]
 
 particle_order=cuda.to_device(particle_order)
@@ -319,7 +317,7 @@ particle_order=cuda.to_device(particle_order)
 particle_weight=[0 for i in range(particle_num)]
 particle_pos=[]
 for i in range(particle_num):
-    particle_pos.append([random.uniform(0,5000),random.uniform(0,8000)])
+    particle_pos.append([random.uniform(0,max_x),random.uniform(0,max_y)])
     #particle_pos.append([2100,1200])
     #print(particle_pos)
 #particle_pos[0]=[110,110]
@@ -333,12 +331,21 @@ all_obstacle_segments=np.array(all_obstacle_segments,np.float32)
 
 
 
-data=[]
-for i in range(200):
-    t=random.uniform(0,np.pi*2)
-    data.append([0,t,get_laser_ref2(all_obstacle_segments,t,robot_pos)])
-data=np.array(data,np.float32)
+# data=[]
+# for i in range(200):
+#     t=random.uniform(0,np.pi*2)
+#     data.append([0,t,get_laser_ref2(all_obstacle_segments,t,robot_pos)])
+# data=np.array(data,np.float32)
 
+data=[]
+lidar = RPLidar(PORT_NAME)
+for i,scan in enumerate(lidar.iter_scans()):
+        data.append(np.array(scan))
+        if i>0:
+            break
+data=numpy.array(data[1])
+lidar.stop()
+lidar.disconnect()
 #particle_pos=cuda.to_device(particle_pos)
 all_obstacles_segments=cuda.to_device(all_obstacle_segments)
 
@@ -362,7 +369,9 @@ def add_kernel(all_obstacle_segments, particle_pos,data, out):
         #out[ty][tx]=(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
         #out[ty*200+tx]=10000/(get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis)**2
         error_t=get_laser_ref(all_obstacle_segments,angle,pos)-laser_dis
-        out[ty*200+tx]=math.exp(-(error_t *error_t)/10000000)
+        out[ty*200+tx]=math.exp(-(error_t *error_t)/1000000)
+    else:
+        out[ty*200+tx]=1
 # @guvectorize(['(float32[:], float32[:])'], # have to include the output array in the type signature
 #              '(i)->()',                 # map a 1D array to a scalar output
 #              target='cuda')
@@ -396,9 +405,9 @@ def sample_kernel(rng_states,weight,old_particle_pos,particle_pos):
     thread_id = cuda.grid(1)
 
     tt=xoroshiro128p_uniform_float32(rng_states,thread_id)
-    if tt<0.05:
-        particle_pos[ty][0]=xoroshiro128p_uniform_float32(rng_states,thread_id)*5000
-        particle_pos[ty][1]=xoroshiro128p_uniform_float32(rng_states,thread_id)*8000
+    if tt<0.01:
+        particle_pos[ty][0]=xoroshiro128p_uniform_float32(rng_states,thread_id)*max_x
+        particle_pos[ty][1]=xoroshiro128p_uniform_float32(rng_states,thread_id)*max_y
     else:
         t=xoroshiro128p_uniform_float32(rng_states,thread_id)
         for i in range(len(weight)):
@@ -418,6 +427,9 @@ rng_states = create_xoroshiro128p_states(particle_num, seed=1)
 
 connected_components = connect_segments(all_obstacle_segments)
 
+
+ooo=[50,123,304,235,12,325]
+
 for q  in range(10000):
     
     pl.clf()
@@ -435,10 +447,30 @@ for q  in range(10000):
     robot_pos[0]+=dis_pos[0]
     robot_pos[1]+=dis_pos[1]
     
-    for i in range(200):
-        t=random.uniform(0,np.pi*2)
-        data[i]=[0,t,get_laser_ref2(all_obstacle_segments,t,robot_pos)]
-    
+    data=[]
+    lidar = RPLidar(PORT_NAME)
+    for i,scan in enumerate(lidar.iter_scans()):
+            data.append(np.array(scan))
+            if i>0:
+                break
+    lidar.stop()
+    lidar.disconnect()
+    data2=data[1]
+    data=np.array([[-1,-1,-1] for i in range(200)])
+    for i in range(len(data2)):
+        data[i]=data2[i]
+        for j in range(4):
+            if abs(data2[i][1]-ooo[j])<2:
+                data[i][1]=-1
+                break
+        if (data2[i][1]<15) or (data2[i][1]>322):
+            data[i][1]=-1
+    print(np.shape(data)[0])
+    #for i in range(200):
+    #    t=random.uniform(0,np.pi*2)
+    #    data[i]=[0,t,get_laser_ref2(all_obstacle_segments,t,robot_pos)]
+        
+
     for num in range(particle_num):
         particle_pos[num][0]+=dis_pos[0]
         particle_pos[num][1]+=dis_pos[1]
@@ -461,8 +493,8 @@ for q  in range(10000):
     sample_kernel[particle_num,1](rng_states,weight,particle_pos,particle_pos_2)
     cuda.synchronize()
     particle_pos=particle_pos_2.copy_to_host()
-    # print(particle_pos)
-    # print(np.mean(particle_pos[:,0])-robot_pos[0],np.mean(particle_pos[:,1])-robot_pos[1])
+    #print(particle_pos)
+    print(np.mean(particle_pos[:,0]),np.mean(particle_pos[:,1]))
     #pdb.set_trace()
     if q==50: break
 

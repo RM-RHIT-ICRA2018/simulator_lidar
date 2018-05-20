@@ -1,7 +1,7 @@
 
 from numba import cuda
 import numpy as np
-
+from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float32
 
 @cuda.jit(debug=True)
 def cufftShift_2D_kernel(data, N):
